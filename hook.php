@@ -27,7 +27,7 @@
  * -------------------------------------------------------------------------
  * @copyright Copyright (C) 2026 by the itencheckinout plugin team.
  * @license   MIT https://opensource.org/licenses/mit-license.php
- * @link      https://github.com/pluginsGLPI/itencheckinout
+ * @link      https://github.com/alexhctp/itencheckinout
  * -------------------------------------------------------------------------
  */
 
@@ -36,11 +36,60 @@
  */
 function plugin_itencheckinout_install(): bool
 {
+    global $DB;
+
+    $default_charset   = DBConnection::getDefaultCharset();
+    $default_collation = DBConnection::getDefaultCollation();
+    $default_key_sign  = DBConnection::getDefaultPrimaryKeySignOption();
+
+    if (!$DB->tableExists('glpi_plugin_itencheckinout_movements')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_itencheckinout_movements` (
+                `id`                   int {$default_key_sign} NOT NULL AUTO_INCREMENT,
+                `reservations_id`      int {$default_key_sign} NOT NULL DEFAULT '0',
+                `reservationitems_id`  int {$default_key_sign} NOT NULL DEFAULT '0',
+                `action`               varchar(20) NOT NULL DEFAULT '',
+                `users_id_actor`       int {$default_key_sign} NOT NULL DEFAULT '0',
+                `date_action`          datetime NOT NULL,
+                `entities_id`          int {$default_key_sign} NOT NULL DEFAULT '0',
+                `date_creation`        datetime DEFAULT NULL,
+                `date_mod`             datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `reservations_id`         (`reservations_id`),
+                KEY `reservationitems_id`      (`reservationitems_id`),
+                KEY `date_action`             (`date_action`),
+                UNIQUE KEY `uniq_action_resa` (`reservations_id`, `action`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$default_charset}
+              COLLATE={$default_collation} ROW_FORMAT=DYNAMIC
+        ");
+    }
+
+    if (!$DB->tableExists('glpi_plugin_itencheckinout_configs')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_itencheckinout_configs` (
+                `id`                          int {$default_key_sign} NOT NULL AUTO_INCREMENT,
+                `tolerance_minutes_after_end` int NOT NULL DEFAULT '" . PLUGIN_ITENCHECKINOUT_DEFAULT_TOLERANCE_MINUTES . "',
+                `date_creation`               datetime DEFAULT NULL,
+                `date_mod`                    datetime DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$default_charset}
+              COLLATE={$default_collation} ROW_FORMAT=DYNAMIC
+        ");
+
+        // Insert default config row
+        $DB->insert('glpi_plugin_itencheckinout_configs', [
+            'tolerance_minutes_after_end' => PLUGIN_ITENCHECKINOUT_DEFAULT_TOLERANCE_MINUTES,
+            'date_creation'              => date('Y-m-d H:i:s'),
+            'date_mod'                   => date('Y-m-d H:i:s'),
+        ]);
+    }
+
     return true;
 }
 
 /**
  * Plugin uninstall process
+ * Data is preserved on uninstall; tables are only dropped on plugin clean.
  */
 function plugin_itencheckinout_uninstall(): bool
 {

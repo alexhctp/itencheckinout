@@ -31,29 +31,40 @@
  * -------------------------------------------------------------------------
  */
 
-require_once __DIR__ . '/../../src/Plugin.php';
+use GlpiPlugin\Itencheckinout\Movement;
+use GlpiPlugin\Itencheckinout\Service\MovementService;
 
-use Rector\Caching\ValueObject\Storage\FileCacheStorage;
-use Rector\Config\RectorConfig;
-use Rector\ValueObject\PhpVersion;
+require_once(__DIR__ . '/../../../inc/includes.php');
 
-return RectorConfig::configure()
-    ->withPaths([
-        __DIR__ . '/src',
-        __DIR__ . '/tests',
-    ])
-    ->withPhpVersion(PhpVersion::PHP_82)
-    ->withCache(
-        cacheDirectory: __DIR__ . '/var/rector',
-        cacheClass: FileCacheStorage::class,
-    )
-    ->withRootFiles()
-    ->withParallel(timeoutSeconds: 300)
-    ->withImportNames(removeUnusedImports: true)
-    ->withPreparedSets(
-        deadCode: true,
-        codeQuality: true,
-        codingStyle: true,
-    )
-    ->withPhpSets(php82: true) // apply PHP sets up to PHP 8.2
-;
+// Require authenticated session
+Session::checkLoginUser();
+
+// Only accept POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
+    exit;
+}
+
+// Validate input
+$action               = trim($_POST['action'] ?? '');
+$reservationitems_id  = (int) ($_POST['reservationitems_id'] ?? 0);
+
+$allowed_actions = [Movement::ACTION_CHECKOUT, Movement::ACTION_CHECKIN];
+
+if (!in_array($action, $allowed_actions, true) || $reservationitems_id <= 0) {
+    http_response_code(400);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => __('Invalid request parameters.', 'itencheckinout')]);
+    exit;
+}
+
+// Delegate to service
+$service = new MovementService();
+$result  = $service->process($action, $reservationitems_id);
+
+http_response_code($result['success'] ? 200 : 422);
+header('Content-Type: application/json');
+echo json_encode($result);
+exit;

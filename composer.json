@@ -2,6 +2,11 @@
     "require": {
         "php": ">=8.2"
     },
+    "autoload": {
+        "psr-4": {
+            "GlpiPlugin\\Itencheckinout\\": "src/"
+        }
+    },
     "config": {
         "optimize-autoloader": true,
         "platform": {
@@ -11,7 +16,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "GlpiPlugin\\ItenCheckInOut\\Tests\\": "tests/"
+            "GlpiPlugin\\Itencheckinout\\Tests\\": "tests/"
         }
     }
 }

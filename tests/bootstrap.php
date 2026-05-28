@@ -27,7 +27,7 @@
  * -------------------------------------------------------------------------
  * @copyright Copyright (C) 2026 by the itencheckinout plugin team.
  * @license   MIT https://opensource.org/licenses/mit-license.php
- * @link      https://github.com/pluginsGLPI/itencheckinout
+ * @link      https://github.com/alexhctp/itencheckinout
  * -------------------------------------------------------------------------
  */
 

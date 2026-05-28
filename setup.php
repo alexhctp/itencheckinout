@@ -27,9 +27,11 @@
  * -------------------------------------------------------------------------
  * @copyright Copyright (C) 2026 by the itencheckinout plugin team.
  * @license   MIT https://opensource.org/licenses/mit-license.php
- * @link      https://github.com/pluginsGLPI/itencheckinout
+ * @link      https://github.com/alexhctp/itencheckinout
  * -------------------------------------------------------------------------
  */
+
+use Glpi\Plugin\Hooks;
 
 /** @phpstan-ignore theCodingMachineSafe.function (safe to assume this isn't already defined) */
 define('PLUGIN_ITENCHECKINOUT_VERSION', '0.0.1');
@@ -42,11 +44,24 @@ define("PLUGIN_ITENCHECKINOUT_MIN_GLPI_VERSION", "11.0.0");
 /** @phpstan-ignore theCodingMachineSafe.function (safe to assume this isn't already defined) */
 define("PLUGIN_ITENCHECKINOUT_MAX_GLPI_VERSION", "11.0.99");
 
+// Default tolerance window in minutes after reservation end before auto-release
+/** @phpstan-ignore theCodingMachineSafe.function (safe to assume this isn't already defined) */
+define('PLUGIN_ITENCHECKINOUT_DEFAULT_TOLERANCE_MINUTES', 60);
+
 /**
  * Init hooks of the plugin.
  * REQUIRED
  */
-function plugin_init_itencheckinout(): void {}
+function plugin_init_itencheckinout(): void
+{
+    global $PLUGIN_HOOKS;
+
+    $PLUGIN_HOOKS['csrf_compliant']['itencheckinout'] = true;
+
+    if (Plugin::isPluginActive('itencheckinout')) {
+        $PLUGIN_HOOKS[Hooks::ADD_JAVASCRIPT]['itencheckinout'][] = 'public/js/reservationitem-actions.js';
+    }
+}
 
 /**
  * Get the name and the version of the plugin
@@ -71,9 +86,9 @@ function plugin_version_itencheckinout(): array
     return [
         'name'           => 'itencheckinout',
         'version'        => PLUGIN_ITENCHECKINOUT_VERSION,
-        'author'         => '<a href="http://www.teclib.com">Teclib\'</a>',
+        'author'         => '<a href="https://github.com/alexhctp/itencheckinout">alexhctp</a>',
         'license'        => '',
-        'homepage'       => '',
+        'homepage'       => 'https://github.com/alexhctp/itencheckinout',
         'requirements'   => [
             'glpi' => [
                 'min' => PLUGIN_ITENCHECKINOUT_MIN_GLPI_VERSION,

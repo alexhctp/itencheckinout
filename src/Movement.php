@@ -34,6 +34,8 @@
 namespace GlpiPlugin\Itencheckinout;
 
 use CommonDBTM;
+use Reservation;
+use Session;
 
 /**
  * Movement record for check-in / check-out actions.
@@ -44,6 +46,9 @@ class Movement extends CommonDBTM
 {
     public const ACTION_CHECKOUT = 'checkout';
     public const ACTION_CHECKIN  = 'checkin';
+    public const STATUS_IN_USE   = 'In use';
+    public const STATUS_RESERVED = 'Reserved';
+    public const STATUS_AVAILABLE = 'Available';
 
     public static $rightname = 'reservation';
 
@@ -114,6 +119,96 @@ class Movement extends CommonDBTM
             'FROM'  => static::getTable(),
             'WHERE' => ['reservationitems_id' => $reservationitems_id],
             'ORDER' => ['date_action ASC'],
+        ]);
+
+        foreach ($iterator as $row) {
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Find the latest movement recorded for a reservation item.
+     */
+    public static function getLastForReservationItem(int $reservationitems_id): ?array
+    {
+        global $DB;
+
+        $iterator = $DB->request([
+            'FROM'  => static::getTable(),
+            'WHERE' => ['reservationitems_id' => $reservationitems_id],
+            'ORDER' => ['date_action DESC', 'id DESC'],
+            'LIMIT' => 1,
+        ]);
+
+        foreach ($iterator as $row) {
+            return $row;
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve item status label from latest movement.
+     *
+     * Rules:
+     * - In use: there is at least one current/future reservation with checkout and no checkin.
+     * - Reserved: there is at least one current/future reservation without checkout.
+     * - Available: there are no current/future reservations.
+     */
+    public static function getStatusForReservationItem(int $reservationitems_id): string
+    {
+        $reservations = static::getCurrentAndFutureReservationsForItem($reservationitems_id);
+        if (count($reservations) === 0) {
+            return self::STATUS_AVAILABLE;
+        }
+
+        foreach ($reservations as $reservation) {
+            $reservation_id = (int) $reservation['id'];
+            $has_checkout = static::actionExistsForReservation($reservation_id, self::ACTION_CHECKOUT);
+            $has_checkin  = static::actionExistsForReservation($reservation_id, self::ACTION_CHECKIN);
+            if ($has_checkout && !$has_checkin) {
+                return self::STATUS_IN_USE;
+            }
+        }
+
+        foreach ($reservations as $reservation) {
+            $reservation_id = (int) $reservation['id'];
+            $has_checkout = static::actionExistsForReservation($reservation_id, self::ACTION_CHECKOUT);
+            if (!$has_checkout) {
+                return self::STATUS_RESERVED;
+            }
+        }
+
+        return self::STATUS_AVAILABLE;
+    }
+
+    /**
+     * Returns current and future reservations for an item.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function getCurrentAndFutureReservationsForItem(int $reservationitems_id): array
+    {
+        global $DB;
+
+        $rows = [];
+        $table = Reservation::getTable();
+        $now = Session::getCurrentTime();
+
+        $iterator = $DB->request([
+            'SELECT' => [
+                "$table.id",
+                "$table.begin",
+                "$table.end",
+            ],
+            'FROM'   => $table,
+            'WHERE'  => [
+                "$table.reservationitems_id" => $reservationitems_id,
+                "$table.end"                 => ['>=', $now],
+            ],
+            'ORDER' => ["$table.begin ASC", "$table.id ASC"],
         ]);
 
         foreach ($iterator as $row) {

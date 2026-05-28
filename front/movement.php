@@ -64,6 +64,10 @@ if (!in_array($action, $allowed_actions, true) || $reservationitems_id <= 0) {
 $service = new MovementService();
 $result  = $service->process($action, $reservationitems_id);
 
+if (isset($result['success']) && $result['success'] === true) {
+    $result['status'] = Movement::getStatusForReservationItem($reservationitems_id);
+}
+
 http_response_code($result['success'] ? 200 : 422);
 header('Content-Type: application/json');
 echo json_encode($result);

@@ -50,7 +50,7 @@ function plugin_itencheckinout_install(): bool
                 `reservationitems_id`  int {$default_key_sign} NOT NULL DEFAULT '0',
                 `action`               varchar(20) NOT NULL DEFAULT '',
                 `users_id_actor`       int {$default_key_sign} NOT NULL DEFAULT '0',
-                `date_action`          datetime NOT NULL,
+                `date_action`          datetime NOT NULL DEFAULT '1970-01-01 00:00:01',
                 `entities_id`          int {$default_key_sign} NOT NULL DEFAULT '0',
                 `date_creation`        datetime DEFAULT NULL,
                 `date_mod`             datetime DEFAULT NULL,

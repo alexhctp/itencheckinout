@@ -60,6 +60,9 @@ function plugin_init_itencheckinout(): void
 
     if (Plugin::isPluginActive('itencheckinout')) {
         $PLUGIN_HOOKS[Hooks::ADD_JAVASCRIPT]['itencheckinout'][] = 'public/js/reservationitem-actions.js';
+        if (Session::haveRight('reservation', READ)) {
+            $PLUGIN_HOOKS[Hooks::CONFIG_PAGE]['itencheckinout'] = 'front/report.php';
+        }
     }
 }
 

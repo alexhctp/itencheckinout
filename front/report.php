@@ -51,19 +51,42 @@ $mov_table = Movement::getTable();
 
 global $DB;
 
-// Build entity restriction for WHERE clause
-$entity_ids = [];
-if (!empty($_SESSION['glpiactiveentities']) && is_array($_SESSION['glpiactiveentities'])) {
-    $entity_ids = array_map('intval', $_SESSION['glpiactiveentities']);
+// Step 1: collect reservation IDs that match the period either by reservation window
+// or by movement action date.
+$reservation_ids_in_period = [];
+
+$res_ids_iterator = $DB->request([
+    'SELECT' => ["$res_table.id"],
+    'FROM'   => $res_table,
+    'WHERE'  => [
+        "$res_table.begin" => ['<=', $end],
+        "$res_table.end"   => ['>=', $start],
+    ],
+]);
+foreach ($res_ids_iterator as $res_id_row) {
+    $reservation_ids_in_period[(int) $res_id_row['id']] = (int) $res_id_row['id'];
 }
 
-// Step 1: fetch reservations with a simple query (no aliased JOINs)
-$where_res = [
-    "$res_table.begin" => ['<=', $end],
-    "$res_table.end"   => ['>=', $start],
-];
-if (!empty($entity_ids)) {
-    $where_res["$ri_table.entities_id"] = $entity_ids;
+$mov_ids_iterator = $DB->request([
+    'SELECT' => ['reservations_id'],
+    'FROM'   => $mov_table,
+    'WHERE'  => [
+        'action' => [Movement::ACTION_CHECKOUT, Movement::ACTION_CHECKIN],
+        'AND'    => [
+            ['date_action' => ['>=', $start]],
+            ['date_action' => ['<=', $end]],
+        ],
+    ],
+]);
+foreach ($mov_ids_iterator as $mov_id_row) {
+    $reservation_ids_in_period[(int) $mov_id_row['reservations_id']] = (int) $mov_id_row['reservations_id'];
+}
+
+$where_res = [];
+if (count($reservation_ids_in_period) > 0) {
+    $where_res["$res_table.id"] = array_values($reservation_ids_in_period);
+} else {
+    $where_res[0] = 1;
 }
 
 $res_iterator = $DB->request([
@@ -105,6 +128,10 @@ if (!empty($reservation_ids)) {
         'WHERE' => [
             'reservations_id' => $reservation_ids,
             'action'          => [Movement::ACTION_CHECKOUT, Movement::ACTION_CHECKIN],
+            'AND'             => [
+                ['date_action' => ['>=', $start]],
+                ['date_action' => ['<=', $end]],
+            ],
         ],
     ]);
     foreach ($mov_iterator as $mov) {
@@ -113,10 +140,65 @@ if (!empty($reservation_ids)) {
 }
 
 $rows = [];
+
+$no_ticket_label = 'sem ticket associado';
+$associated_ticket_by_reservation = [];
+$reservation_ticket_map_table = 'glpi_plugin_etlglpitfsworkintens_reservationtickets';
+
+if (!empty($reservation_ids) && $DB->tableExists($reservation_ticket_map_table)) {
+    $mapped_ticket_rows = $DB->request([
+        'SELECT' => ['reservations_id', 'tickets_id'],
+        'FROM'   => $reservation_ticket_map_table,
+        'WHERE'  => [
+            'reservations_id' => $reservation_ids,
+        ],
+    ]);
+
+    $ticket_ids = [];
+    $reservation_to_ticket = [];
+    foreach ($mapped_ticket_rows as $mapped_ticket_row) {
+        $mapped_reservation_id = (int) ($mapped_ticket_row['reservations_id'] ?? 0);
+        $mapped_ticket_id = (int) ($mapped_ticket_row['tickets_id'] ?? 0);
+        if ($mapped_reservation_id <= 0 || $mapped_ticket_id <= 0) {
+            continue;
+        }
+
+        $reservation_to_ticket[$mapped_reservation_id] = $mapped_ticket_id;
+        $ticket_ids[$mapped_ticket_id] = $mapped_ticket_id;
+    }
+
+    if (count($ticket_ids) > 0) {
+        $ticket_titles_by_id = [];
+        $ticket_rows = $DB->request([
+            'SELECT' => ['id', 'name'],
+            'FROM'   => Ticket::getTable(),
+            'WHERE'  => [
+                'id' => array_values($ticket_ids),
+            ],
+        ]);
+
+        foreach ($ticket_rows as $ticket_row) {
+            $ticket_id = (int) ($ticket_row['id'] ?? 0);
+            if ($ticket_id <= 0) {
+                continue;
+            }
+            $ticket_titles_by_id[$ticket_id] = trim((string) ($ticket_row['name'] ?? ''));
+        }
+
+        foreach ($reservation_to_ticket as $mapped_reservation_id => $mapped_ticket_id) {
+            $ticket_title = $ticket_titles_by_id[$mapped_ticket_id] ?? '';
+            if ($ticket_title !== '') {
+                $associated_ticket_by_reservation[$mapped_reservation_id] = $ticket_title;
+            }
+        }
+    }
+}
+
 foreach ($reservations as $row) {
     $res_id      = (int) $row['id'];
     $checkout_at = $movements_map[$res_id][Movement::ACTION_CHECKOUT] ?? '';
     $checkin_at  = $movements_map[$res_id][Movement::ACTION_CHECKIN]  ?? '';
+    $associated_ticket = $associated_ticket_by_reservation[$res_id] ?? $no_ticket_label;
 
     $item_label = $row['itemtype'] . ' #' . $row['items_id'];
     $item = getItemForItemtype($row['itemtype']);
@@ -134,6 +216,7 @@ foreach ($reservations as $row) {
         'withdrawn'      => $checkout_at ? __('Yes') : __('No'),
         'returned'       => $checkin_at ? __('Yes') : __('No'),
         'loaned'         => ($checkout_at && !$checkin_at) ? __('Yes') : __('No'),
+        'associated_ticket' => $associated_ticket,
     ];
 }
 
@@ -147,6 +230,7 @@ $headers = [
     __('Item withdrawn', 'itencheckinout'),
     __('Item returned', 'itencheckinout'),
     __('Currently loaned', 'itencheckinout'),
+    __('Associated ticket', 'itencheckinout'),
 ];
 
 if ($export === 'csv' || $export === 'xlsx') {
@@ -171,6 +255,7 @@ if ($export === 'csv' || $export === 'xlsx') {
                 $r['withdrawn'],
                 $r['returned'],
                 $r['loaned'],
+                $r['associated_ticket'],
             ], ';');
         }
         fclose($out);
@@ -198,10 +283,11 @@ if ($export === 'csv' || $export === 'xlsx') {
         $sheet->setCellValueByColumnAndRow(7, $row_num, $r['withdrawn']);
         $sheet->setCellValueByColumnAndRow(8, $row_num, $r['returned']);
         $sheet->setCellValueByColumnAndRow(9, $row_num, $r['loaned']);
+        $sheet->setCellValueByColumnAndRow(10, $row_num, $r['associated_ticket']);
         $row_num++;
     }
 
-    foreach (range('A', 'I') as $column) {
+    foreach (range('A', 'J') as $column) {
         $sheet->getColumnDimension($column)->setAutoSize(true);
     }
 
@@ -251,6 +337,7 @@ echo "      <th>" . htmlescape(__('Checkin at', 'itencheckinout')) . "</th>";
 echo "      <th>" . htmlescape(__('Item withdrawn', 'itencheckinout')) . "</th>";
 echo "      <th>" . htmlescape(__('Item returned', 'itencheckinout')) . "</th>";
 echo "      <th>" . htmlescape(__('Currently loaned', 'itencheckinout')) . "</th>";
+echo "      <th>" . htmlescape(__('Associated ticket', 'itencheckinout')) . "</th>";
 echo "    </tr>";
 echo "  </thead>";
 echo "  <tbody>";
@@ -266,11 +353,12 @@ foreach ($rows as $r) {
     echo "      <td>" . htmlescape($r['withdrawn']) . "</td>";
     echo "      <td>" . htmlescape($r['returned']) . "</td>";
     echo "      <td>" . htmlescape($r['loaned']) . "</td>";
+    echo "      <td>" . htmlescape($r['associated_ticket']) . "</td>";
     echo "    </tr>";
 }
 
 if (count($rows) === 0) {
-    echo "    <tr><td colspan='9' class='text-center text-muted py-4'>" . htmlescape(__('No item found')) . "</td></tr>";
+    echo "    <tr><td colspan='10' class='text-center text-muted py-4'>" . htmlescape(__('No item found')) . "</td></tr>";
 }
 
 echo "  </tbody>";
